@@ -9,8 +9,8 @@ from qtpy import QtCore, QtMultimedia, QtWidgets, QtGui
 from qtpy.QtCore import Qt
 from .reanalyze import ReanalyzePopup
 import pandas as pd
-from . import _utils
-from ._utils import text
+from ._gui_utils import text
+from . import _gui_utils
 
 if os.name == "nt":
     os.environ["QT_MULTIMEDIA_PREFERRED_PLUGINS"] = "windowsmediafoundation"
@@ -126,9 +126,9 @@ class FacialViewer(ViewerWidget):
             return
         data = pd.read_hdf(data_path + ".h5", key=os.path.split(data_path)[1])
         data = data[os.path.split(data_path)[1]]
-        self.symmetry = data["scores", "score"].to_numpy()
-        self.brow_height_l = data["eyes", "brow_dist_l"].to_numpy()
-        self.brow_height_r = data["eyes", "brow_dist_r"].to_numpy()
+        self.symmetry = data["symmetry", "symmetry"].to_numpy()
+        self.brow_height_l = data["eyes", "brow_height_l"].to_numpy()
+        self.brow_height_r = data["eyes", "brow_height_r"].to_numpy()
         self.eye_area_r = data["eyes", "area_r"].to_numpy()
         self.eye_area_l = data["eyes", "area_l"].to_numpy()
         self.lower_lip_height_l = data["mouth", "lip_height_r"].to_numpy()
@@ -136,15 +136,15 @@ class FacialViewer(ViewerWidget):
         self.lower_lip_height_r = data["mouth", "lip_height_l"].to_numpy()
         self.oral_excursion_l = data["mouth", "excursions_l"].to_numpy()
         self.oral_excursion_r = data["mouth", "excursions_r"].to_numpy()
-        self.iris_radei_r = data["scores", "iris_radei_r"]
-        self.iris_radei_l = data["scores", "iris_radei_r"]
+        self.iris_radei_r = data["eyes", "iris_radei_r"]
+        self.iris_radei_l = data["eyes", "iris_radei_l"]
         self.glabella = data["glabella"].to_numpy()
         self.midline_bottom = data["midlineP2"].to_numpy()
         if self.mm:
             if pixel_scaling is not None:
                 pix_size = pixel_scaling
             else:
-                pix_size = data["scores", "pix_size"].to_numpy()[0]
+                pix_size = data["symmetry", "pix_size"].to_numpy()[0]
             len_label = "mm"
             area_label = "mm^2"
             self.brow_height_l = self.brow_height_l * pix_size
@@ -413,12 +413,11 @@ class FacialViewer(ViewerWidget):
             opacity=1,
         )
         napari.run(force=True, max_loop_level=3)
-        close_listener = _utils.CloseListener(self.viewer.window._qt_window)
+        close_listener = _gui_utils.CloseListener(self.viewer.window._qt_window)
         close_listener.closed.connect(self.recalc_midline)
 
     def recalc_midline(self):
         line = self.viewer.layers[1].data[0]
-        print(line)
         self.popup = ReanalyzePopup(line, self.old_line, self.vid_path, self.reanalyze_frame)
         self.popup.show()
 

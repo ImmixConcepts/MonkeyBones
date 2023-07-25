@@ -4,7 +4,7 @@ from qtpy import QtCore, QtWidgets, QtGui, API as QT_API, QT_VERSION
 from qtpy.QtCore import Qt
 from .analysis import analyze
 from .cropper import FaceCropper
-from ._utils import CloseListener, text
+from ._gui_utils import CloseListener, text
 from .viewer import FacialViewer
 
 try:

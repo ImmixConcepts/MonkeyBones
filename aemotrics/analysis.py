@@ -10,7 +10,7 @@ from logging import info
 import pandas as pd
 
 dlc_model_dir_name = "Aemotrics_V3-Nate-2023-06-29"
-model_dir = os.path.join(os.path.split(os.path.realpath(__file__))[0], dlc_model_dir_name)
+model_dir = os.path.join(os.path.dirname(os.path.split(os.path.realpath(__file__))[0]), 'model', dlc_model_dir_name)
 
 if not os.path.isfile(os.path.join(model_dir, "config.yaml")) and not os.path.isfile(
     os.path.join(model_dir, "config.yml")
@@ -60,13 +60,9 @@ class Analysis(dga.Analysis):
         if not os.path.isfile(h5_path):
             raise FileNotFoundError(h5_path)
         dga.Analysis.__init__(self, h5_path, dlc_model, startframe=start_frame, endframe=end_frame)
-        eye_area, eye_draw_right, eye_draw_left = _geometries.eyes(self.df)
+        eye_areas, eye_draw_r, eye_draw_l = _geometries.eyes(self.df)
         iris_r_points = dga.utils.point_array(self.df, IRIS_POINTS_R)
-        print(iris_r_points)
-        print(iris_r_points[0])
         iris_center_r, iris_radei_r = _utils.iris_circles(iris_r_points)
-        print("iris_radei_r")
-        print(iris_radei_r)
         self.iris_r = np.concatenate(
             (iris_center_r, iris_radei_r.reshape(iris_radei_r.shape[0], 1)), axis=1
         )
@@ -83,51 +79,51 @@ class Analysis(dga.Analysis):
         vid = cv2.VideoCapture(video_path)
         self.frame_size = vid.get(cv2.CAP_PROP_FRAME_WIDTH), vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
         vid.release()
-        eye_lines, mid_x, mid_lines = _geometries.midline(self.df, self.frame_size[1])
+        eye_lines, mid_x, midlines = _geometries.midline(self.df, self.frame_size[1])
         if midline_adjustment is not None:
             if midline_adjustment_frame is not None:
-                (mid_lines[midline_adjustment_frame],) = _adjust_line(
-                    [mid_lines[midline_adjustment_frame]], midline_adjustment
+                (midlines[midline_adjustment_frame],) = _adjust_line(
+                    [midlines[midline_adjustment_frame]], midline_adjustment
                 )[0]
             else:
-                mid_lines = _adjust_line(mid_lines, midline_adjustment)
+                midlines = _adjust_line(midlines, midline_adjustment)
         # Mouth
-        frames = mid_lines.shape[0]
-        mouth = _geometries.Mouth(self.df, mid_lines)
+        frames = midlines.shape[0]
+        mouth = _geometries.Mouth(self.df, midlines)
 
         mouth_overlaps = _geometries.mouth_poly_intersect(
-            mouth.draw_pts_r, mouth.draw_pts_l, mid_lines
+            mouth.draw_pts_r, mouth.draw_pts_l, midlines
         )
         # Inner Mouth
         (
             inner_areas,
-            mouth_right_area_inner_draw,
-            mouth_left_area_inner_draw,
+            mouth_area_inner_draw_r,
+            mouth_area_inner_draw_l,
             tcl_l_inner,
             inner_mouth_x,
-        ) = _geometries.inner_mouth_areas(self.df, mid_lines)
+        ) = _geometries.inner_mouth_areas(self.df, midlines)
         inner_mouth_overlaps = _geometries.mouth_poly_intersect(
-            mouth_right_area_inner_draw, mouth_left_area_inner_draw, mid_lines
+            mouth_area_inner_draw_r, mouth_area_inner_draw_l, midlines
         )
         # Brow
         (
             brow_height_lines_r,
             brow_height_lines_l,
-            brow_dist_r,
-            brow_dist_l,
+            brow_height_r,
+            brow_height_l,
         ) = _geometries.brow(self.df, eye_lines)
         # Lower Lips
-        right_lip_height, left_lip_height = _geometries.lower_lip(
+        lip_heights_r, lip_heights_l = _geometries.lower_lip(
             eye_lines,
-            mouth.r_bisect_points,
-            mouth.l_bisect_points,
+            mouth.bisect_points_r,
+            mouth.bisect_points_l,
         )
         max_ind = 0
-        right_mouth_lower_intersect = dga.utils.nan((mid_lines.shape[0], 2))
-        left_mouth_lower_intersect = dga.utils.nan((mid_lines.shape[0], 2))
+        right_mouth_lower_intersect = dga.utils.nan((midlines.shape[0], 2))
+        left_mouth_lower_intersect = dga.utils.nan((midlines.shape[0], 2))
         for i in range(frames):
-            r_line = mouth.r_perp_bisects[i]
-            l_line = mouth.l_perp_bisects[i]
+            r_line = mouth.perp_bisects_r[i]
+            l_line = mouth.perp_bisects_l[i]
             tck = mouth.tck_ls[i]
             x = mouth.xs[i]
             if r_line is not None and not isinstance(tck, int):
@@ -136,10 +132,10 @@ class Analysis(dga.Analysis):
                 right_mouth_lower_intersect.append(None)
             if l_line is not None and not isinstance(tck, int):
                 left_mouth_lower_intersect[i] = _utils.set_intersect(tck, x, l_line)
-        right_lower_lip_tangents = dga.utils.nan((mid_lines.shape[0], 6))
-        left_lower_lip_tangents = dga.utils.nan((mid_lines.shape[0], 6))
+        lower_lip_tangents_r = dga.utils.nan((midlines.shape[0], 6))
+        lower_lip_tangents_l = dga.utils.nan((midlines.shape[0], 6))
         for i in range(frames):
-            if not np.isnan(mid_lines[i]).any():
+            if not np.isnan(midlines[i]).any():
                 slope = [i, 0]
                 if isinstance(right_mouth_lower_intersect, tuple) and isinstance(
                     left_mouth_lower_intersect, tuple
@@ -170,8 +166,8 @@ class Analysis(dga.Analysis):
                         ),
                         np.stack((mid, mid * slope + l_y_int)),
                     ).astype(int)
-                    right_lower_lip_tangents[i] = right_tan_line
-                    left_lower_lip_tangents[i] = left_tan_line
+                    lower_lip_tangents_r[i] = right_tan_line
+                    lower_lip_tangents_l[i] = left_tan_line
         # Simple area ratios for mouth.
         mouth_area_ratios, mouth_ratio_max = _utils.get_ratios(mouth.areas)
         mouth_overlap_ratios = dga.utils.nan(frames)
@@ -185,8 +181,8 @@ class Analysis(dga.Analysis):
                 outer_larger[i] = max((mouth.areas[i, 0], mouth.areas[i, 1]))
 
         # Mouth Projection Plot
-        mouth_projection_pts_left = []
-        mouth_projection_pts_right = []
+        mouth_projection_pts_l = []
+        mouth_projection_pts_r = []
         proj_pts_x = []
         proj_pts_y = []
         right_pts_x = []
@@ -194,32 +190,32 @@ class Analysis(dga.Analysis):
         if mouth.draw_pts_l[max_ind] is not None:
             for point in mouth.draw_pts_l[max_ind]:
                 if point is not None and not np.array_equal(point, np.array([np.nan, np.nan])):
-                    pivot = (point[1] - mid_lines[max_ind, 1]) / mid_lines[max_ind, 0]
+                    pivot = (point[1] - midlines[max_ind, 1]) / midlines[max_ind, 0]
                     new_r = 2 * pivot - point[0]
                     new_l = point[1]
-                    mouth_projection_pts_left.append([new_r, new_l])
+                    mouth_projection_pts_l.append([new_r, new_l])
                     proj_pts_x.append(new_r)
                     proj_pts_y.append(new_l)
                 else:
-                    mouth_projection_pts_left.append([np.nan, np.nan])
+                    mouth_projection_pts_l.append([np.nan, np.nan])
 
                     proj_pts_x.append(np.nan)
                     proj_pts_y.append(np.nan)
-        self.mouth_projection_pts_left = np.array(mouth_projection_pts_left)
+        self.mouth_projection_pts_l = np.array(mouth_projection_pts_l)
         if mouth.draw_pts_r[max_ind] is not None:
             for point in mouth.draw_pts_r[max_ind]:
                 if point is not None and not np.array_equal(point, np.array([np.nan, np.nan])):
-                    mouth_projection_pts_right.append([point[0], point[1]])
+                    mouth_projection_pts_r.append([point[0], point[1]])
                     right_pts_x.append(point[0])
                     right_pts_y.append(point[1])
                 else:
-                    mouth_projection_pts_right.append([-np.nan, np.nan])
+                    mouth_projection_pts_r.append([-np.nan, np.nan])
                     right_pts_x.append(np.nan)
                     right_pts_y.append(np.nan)
-        self.mouth_projection_pts_right = np.array(mouth_projection_pts_right)
+        self.mouth_projection_pts_r = np.array(mouth_projection_pts_r)
         eye_ratios = []
-        if eye_area is not None:
-            for areas in eye_area:
+        if eye_areas is not None:
+            for areas in eye_areas:
                 if areas[0] != 0 and areas[0] is not None and areas[1] is not None:
                     num = max(abs(areas[0]), abs(areas[1]))
                     den = min(abs(areas[0]), abs(areas[1]))
@@ -243,29 +239,29 @@ class Analysis(dga.Analysis):
                 inner_larger[i] = larger
         # Inner Projection Plot
         if (
-            mouth_left_area_inner_draw[max_ind] is not None
-            and mouth_right_area_inner_draw[max_ind] is not None
+            mouth_area_inner_draw_l[max_ind] is not None
+            and mouth_area_inner_draw_r[max_ind] is not None
         ):
             inner_proj_pts_x = []
             inner_proj_pts_y = []
             right_inner_x = []
             right_inner_y = []
-            for point in mouth_left_area_inner_draw[max_ind]:
-                pivot = (point[1] - mid_lines[max_ind, 1]) / mid_lines[max_ind, 0]
+            for point in mouth_area_inner_draw_l[max_ind]:
+                pivot = (point[1] - midlines[max_ind, 1]) / midlines[max_ind, 0]
                 new_r = 2 * pivot - point[0]
                 new_l = point[1]
                 inner_proj_pts_x.append(new_r)
                 inner_proj_pts_y.append(new_l)
-            for point in mouth_right_area_inner_draw[max_ind]:
+            for point in mouth_area_inner_draw_r[max_ind]:
                 right_inner_x.append(point[0])
                 right_inner_y.append(point[1])
 
         # Symmetry Scores
-        scores = dga.utils.nan(len(mouth_overlaps))
+        symmetry = dga.utils.nan(len(mouth_overlaps))
         for i in range(len(mouth_overlaps)):
             if not np.isnan(mouth_overlaps[i]) and mouth_overlaps[i] > 0:
                 score = mouth_overlaps[i] / outer_larger[i]
-                scores[i] = score
+                symmetry[i] = score
             elif (
                 inner_mouth_overlaps[i] is None
                 or inner_mouth_overlaps[i] < 0
@@ -273,7 +269,7 @@ class Analysis(dga.Analysis):
                 and mouth_overlaps[i] > 0
             ):
                 score = mouth_overlaps[i] / outer_larger[i]
-                scores[i] = score
+                symmetry[i] = score
         right_max = 0
         left_max = 0
         for i in range(len(mouth.areas)):
@@ -281,7 +277,7 @@ class Analysis(dga.Analysis):
                 right_max = mouth.areas[i, 0]
             if mouth.areas[i, 1] > left_max:
                 left_max = mouth.areas[i, 1]
-        scores = np.array(scores)
+        symmetry = np.array(symmetry)
         # CSV return and output data
         compiled_data_list = []  # Returned by analyze with compiled data from video
         """compiled data indices: 
@@ -297,14 +293,14 @@ class Analysis(dga.Analysis):
         np_mouth = np.array(temp_mouth)
         compiled_data_list.append(dir_path)
         compiled_data_list.append(np.percentile(np_mouth, 97))
-        mouth_projection_pts_left = np.squeeze(mouth_projection_pts_left)
+        mouth_projection_pts_l = np.squeeze(mouth_projection_pts_l)
         # Corner mouth excursions
         excursion_ratios = []
         for i in range(len(mouth_area_ratios)):
             # List must be as long as mouth ratios for writer. Fill none if empty at end
-            if i <= len(mouth.left_excursions) or i <= len(mouth.right_excursions):
-                left_pix_dist = mouth.left_excursions[i]
-                right_pix_dist = mouth.right_excursions[i]
+            if i <= len(mouth.excursions_l) or i <= len(mouth.excursions_r):
+                left_pix_dist = mouth.excursions_l[i]
+                right_pix_dist = mouth.excursions_r[i]
                 if left_pix_dist + right_pix_dist > 0:
                     excursion_ratios.append(
                         (right_pix_dist - left_pix_dist) / (right_pix_dist + left_pix_dist) / 2
@@ -314,66 +310,66 @@ class Analysis(dga.Analysis):
             else:
                 excursion_ratios.append(np.nan)
         self.mouth = mouth
-        self.scores = scores
+        self.symmetry = symmetry
         self.mouth_area_ratios = mouth_area_ratios
         self.inner_mouth_area_ratios = inner_mouth_area_ratios
         self.mouth_excursion_ratios = excursion_ratios
         self.mouth_overlap_ratios = mouth_overlap_ratios
-        self.right_lip_height = right_lip_height
-        self.left_lip_height = left_lip_height
-        self.mouth_projection_pts_left = np.array(mouth_projection_pts_left)
-        self.mouth_projection_pts_right = np.array(mouth_projection_pts_right)
-        self.brow_dist_r = brow_dist_r
-        self.brow_dist_l = brow_dist_l
+        self.lip_heights_r = lip_heights_r
+        self.lip_heights_l = lip_heights_l
+        self.mouth_projection_pts_r = np.array(mouth_projection_pts_r)
+        self.mouth_projection_pts_l = np.array(mouth_projection_pts_l)
+        self.brow_heights_r = brow_height_r
+        self.brow_heights_l = brow_height_l
         self.brow_height_lines_r = brow_height_lines_r
         self.brow_height_lines_l = brow_height_lines_l
         self.eye_ratios = eye_ratios
-        self.eye_area = eye_area
-        self.sp_draw = np.stack([eye_draw_right, eye_draw_left])
+        self.eye_areas = eye_areas
+        self.sp_draw = np.stack([eye_draw_r, eye_draw_l])
         self.eye_lines = eye_lines
-        self.mid_lines = mid_lines
-        self.mouth_left_area_inner_draw = mouth_left_area_inner_draw
-        self.mouth_right_area_inner_draw = mouth_right_area_inner_draw
-        self.right_lower_lip_tangents = right_lower_lip_tangents
-        self.left_lower_lip_tangents = left_lower_lip_tangents
-        self.csv_path = ""
-        self.draw_path = ""
+        self.midlines = midlines
+        self.mouth_area_inner_draw_r = mouth_area_inner_draw_r
+        self.mouth_area_inner_draw_l = mouth_area_inner_draw_l
+        self.lower_lip_tangents_r = lower_lip_tangents_r
+        self.lower_lip_tangents_l = lower_lip_tangents_l
+        self._csv_path = ""
+        self._draw_path = ""
         self.plot_path = ""
-        scores = pd.DataFrame(
+        symmetry_df = pd.DataFrame(
             {
-                "score": self.scores,
+                "symmetry": self.symmetry,
                 "pix_size": self.pix_size,
-                "iris_radei_r": self.iris_r[:, 2],
-                "iris_radei_l": self.iris_l[:, 2],
             }
         )
-        midp0 = self.mid_lines[:, 2:4]
+        midp0 = self.midlines[:, 2:4]
         midline_point1 = pd.DataFrame({"x": midp0[:, 0], "y": midp0[:, 1]})
         glab = self.df["Glab"][["x", "y"]]
         midline = pd.concat([glab, midline_point1], keys=["glabella", "midlineP2"], axis=1)
         eyes = pd.DataFrame(
             {
-                "area_r": self.eye_area[:, 0],
-                "area_l": self.eye_area[:, 1],
+                "area_r": self.eye_areas[:, 0],
+                "area_l": self.eye_areas[:, 1],
                 "area_ratio": self.eye_ratios,
-                "brow_dist_r": self.brow_dist_r,
-                "brow_dist_l": self.brow_dist_l,
+                "brow_height_r": self.brow_heights_r,
+                "brow_height_l": self.brow_heights_l,
+                "iris_radei_r": self.iris_r[:, 2],
+                "iris_radei_l": self.iris_l[:, 2],
             }
         )
         mouth = pd.DataFrame(
             {
                 "area_r": self.mouth.areas[:, 0],
                 "area_l": self.mouth.areas[:, 1],
-                "excursions_r": self.mouth.right_excursions,
-                "excursions_l": self.mouth.left_excursions,
-                "lip_height_r": self.right_lip_height,
-                "lip_height_l": self.left_lip_height,
+                "excursions_r": self.mouth.excursions_r,
+                "excursions_l": self.mouth.excursions_l,
+                "lip_height_r": self.lip_heights_r,
+                "lip_height_l": self.lip_heights_l,
                 "excursion_ratio": self.mouth_excursion_ratios,
                 "area_ratio": self.mouth_area_ratios,
                 "area_overlap": self.mouth_overlap_ratios,
             }
         )
-        df = pd.concat([scores, eyes, mouth], keys=["scores", "eyes", "mouth"], axis=1)
+        df = pd.concat([symmetry_df, eyes, mouth], keys=["symmetry", "eyes", "mouth"], axis=1)
         df = df.join(midline)
         self.df = df
 
@@ -422,13 +418,13 @@ class Analysis(dga.Analysis):
         plt.figure()
         plt.title("Area Overlap")
         plt.scatter(
-            self.mouth_projection_pts_left[:, 0],
-            self.mouth_projection_pts_left[:, 1],
+            self.mouth_projection_pts_l[:, 0],
+            self.mouth_projection_pts_l[:, 1],
             c="green",
         )
         plt.scatter(
-            self.mouth_projection_pts_right[:, 0],
-            self.mouth_projection_pts_right[:, 1],
+            self.mouth_projection_pts_r[:, 0],
+            self.mouth_projection_pts_r[:, 1],
             c="lightblue",
         )
         out_path = os.path.join(dir_path, video_name + "Area_overlap.png")
@@ -459,7 +455,7 @@ class Analysis(dga.Analysis):
         if show:
             plt.show()
         # Symmetry Score
-        scores = self.scores.astype(np.double)
+        scores = self.symmetry.astype(np.double)
         plot_scores = np.isfinite(scores)
         fig, ax1 = plt.subplots()
 
@@ -472,8 +468,8 @@ class Analysis(dga.Analysis):
         # Excursion
         ax2 = ax1.twinx()
         ax2.set_ylabel("Excursion distance (px)")
-        ax2.plot(self.mouth.left_excursions, c="red")
-        ax2.plot(self.mouth.right_excursions, c="yellow")
+        ax2.plot(self.mouth.excursions_l, c="red")
+        ax2.plot(self.mouth.excursions_r, c="yellow")
 
         # Legend
         blue_patch = patches.Patch(color="lightblue", label="Symmetry Score")
@@ -503,21 +499,21 @@ class Analysis(dga.Analysis):
             self.mouth.draw_pts_r,
             self.mouth.draw_pts_l,
             self.sp_draw,
-            self.mid_lines,
+            self.midlines,
             self.eye_lines,
             self.brow_height_lines_r,
             self.brow_height_lines_l,
-            self.mouth.rx_lines,
-            self.mouth.lx_lines,
-            self.right_lower_lip_tangents,
-            self.left_lower_lip_tangents,
-            self.mouth_right_area_inner_draw,
-            self.mouth_left_area_inner_draw,
+            self.mouth.excursion_lines_r,
+            self.mouth.excursion_lines_l,
+            self.lower_lip_tangents_r,
+            self.lower_lip_tangents_l,
+            self.mouth_area_inner_draw_r,
+            self.mouth_area_inner_draw_l,
             self.iris_l,
             self.iris_r,
         )
         info("Video is here: " + self.video_path)
-        self.draw_path = path
+        self._draw_path = path
         return path
 
 
@@ -586,10 +582,9 @@ def do_analysis(
 
 
 def _adjust_line(lines, angle):
-    newlines = []
     slope = np.tan(np.arctan(lines[:, 0]) + angle)
-    np_lines = dga.line.from_points(
+    new_lines = dga.line.from_points(
         lines[:, 2:4],
         np.stack((lines[:, 2] - (lines[:, 3] - lines[:, 5]) * (-1 / slope), lines[:, 5]), axis=1),
     )
-    return newlines, np_lines
+    return new_lines

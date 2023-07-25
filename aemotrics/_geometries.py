@@ -1,11 +1,13 @@
 from typing import List
 import dlc_generic_analysis as dga
 import numpy as np
+import scipy.stats
 from pandas import DataFrame
 from scipy import interpolate
 from shapely.geometry import Polygon
 from . import _points
 from . import _utils
+
 
 # Number of actions performed on each Riemann sum for spline integration.
 SUM_TOTAL = 100
@@ -26,17 +28,17 @@ class Mouth:
         self.draw_pts_r = []
         self.draw_pts_l = []
         # Excursion lines
-        self.right_excursions = dga.utils.nan(points.shape[1])
-        self.left_excursions = dga.utils.nan(points.shape[1])
-        self.rx_lines = dga.utils.nan((points.shape[1], 6))
-        self.lx_lines = dga.utils.nan((points.shape[1], 6))
+        self.excursions_r = dga.utils.nan(points.shape[1])
+        self.excursions_l = dga.utils.nan(points.shape[1])
+        self.excursion_lines_r = dga.utils.nan((points.shape[1], 6))
+        self.excursion_lines_l = dga.utils.nan((points.shape[1], 6))
         # Perpendicular bisecting excursion lines
-        self.r_perp_excursions = dga.utils.nan(points.shape[1])
-        self.l_perp_excursions = dga.utils.nan(points.shape[1])
-        self.r_perp_bisects = dga.utils.nan((points.shape[1], 6))
-        self.l_perp_bisects = dga.utils.nan((points.shape[1], 6))
-        self.r_bisect_points = dga.utils.nan([points.shape[1], 2])
-        self.l_bisect_points = dga.utils.nan([points.shape[1], 2])
+        self.perp_excursions_r = dga.utils.nan(points.shape[1])
+        self.perp_excursions_l = dga.utils.nan(points.shape[1])
+        self.perp_bisects_r = dga.utils.nan((points.shape[1], 6))
+        self.perp_bisects_l = dga.utils.nan((points.shape[1], 6))
+        self.bisect_points_r = dga.utils.nan([points.shape[1], 2])
+        self.bisect_points_l = dga.utils.nan([points.shape[1], 2])
         self.tck_ls = []
         self.xs = []
         for i in range(points.shape[1]):
@@ -55,10 +57,10 @@ class Mouth:
                     y_int = mid_lines[i, 1]
                     r_mid_x = (r_ex_y - y_int) / slope
                     l_mid_x = (l_ex_y - y_int) / slope
-                    self.r_perp_excursions[i] = dga.utils.scalar_dist(
+                    self.perp_excursions_r[i] = dga.utils.scalar_dist(
                         pts[0], np.stack([r_mid_x, r_ex_y])
                     )
-                    self.l_perp_excursions[i] = dga.utils.scalar_dist(
+                    self.perp_excursions_l[i] = dga.utils.scalar_dist(
                         pts[8], np.stack([l_mid_x, l_ex_y])
                     )
                     r_y_int = r_ex_y + (1 / slope) * pts[0][0]
@@ -68,10 +70,10 @@ class Mouth:
                     l_mid = l_mid_x - (l_mid_x - pts[10, 0]) / 2
                     r_ref_pt = (r_mid, r_mid * (-1 / slope) + r_y_int)
                     l_ref_pt = (l_mid, l_mid * (-1 / slope) + l_y_int)
-                    self.r_perp_bisects[i] = dga.line.from_slope(
+                    self.perp_bisects_r[i] = dga.line.from_slope(
                         slope=slope, intercept=r_ref_pt[1] - r_mid * slope
                     )
-                    self.l_perp_bisects[i] = dga.line.from_slope(
+                    self.perp_bisects_l[i] = dga.line.from_slope(
                         slope=slope, intercept=l_ref_pt[1] - l_mid * slope
                     )
                 # Compute area and gather drawing information
@@ -85,32 +87,36 @@ class Mouth:
                     draw_r,
                     draw_l,
                     mid_lower,
-                    right_bisect,
-                    left_bisect,
+                    bisect_r,
+                    bisect_l,
                     tck_l,
                     x,
                 ) = spline_area_mouth(
                     upper,
                     lower,
                     mid_lines[i],
-                    self.r_perp_bisects[i],
-                    self.l_perp_bisects[i],
+                    self.perp_bisects_r[i],
+                    self.perp_bisects_l[i],
                 )
                 if x is not None:
                     self.areas[i] = [r_area, l_area]
                     self.draw_pts_r.append(draw_r)
                     self.draw_pts_l.append(draw_l)
-                    if right_bisect is not None and left_bisect is not None:
-                        self.r_bisect_points[i] = right_bisect
-                        self.l_bisect_points[i] = left_bisect
+                    if bisect_r is not None and bisect_l is not None:
+                        self.bisect_points_r[i] = bisect_r
+                        self.bisect_points_l[i] = bisect_l
                     self.tck_ls.append(tck_l)
                     self.xs.append(x)
                     # Excursion from lower lip midpoint
-                    self.right_excursions[i] = dga.utils.scalar_dist(pts[0], mid_lower)
-                    self.left_excursions[i] = dga.utils.scalar_dist(pts[10], mid_lower)
+                    self.excursions_r[i] = dga.utils.scalar_dist(pts[0], mid_lower)
+                    self.excursions_l[i] = dga.utils.scalar_dist(pts[10], mid_lower)
                     int_mid_pt = np.stack((mid_lower[0], mid_lower[1])).astype(int)
-                    self.rx_lines[i] = dga.line.from_points_1d(pts[0].astype(int), int_mid_pt)
-                    self.lx_lines[i] = dga.line.from_points_1d(pts[10].astype(int), int_mid_pt)
+                    self.excursion_lines_r[i] = dga.line.from_points_1d(
+                        pts[0].astype(int), int_mid_pt
+                    )
+                    self.excursion_lines_l[i] = dga.line.from_points_1d(
+                        pts[10].astype(int), int_mid_pt
+                    )
                 else:
                     self.draw_pts_r.append(None)
                     self.draw_pts_l.append(None)
@@ -136,40 +142,45 @@ def intersection(line0: np.ndarray, line1: np.ndarray):
     return np.stack([x, y], axis=1)
 
 
-def _brow_compute(
-    eye_lines: np.ndarray, r_brow_pts: np.ndarray, l_brow_pts: np.ndarray
-) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
-    """
-    Computes a line between each brow point and the eye canthi line and the length of the lines
-    :param eye_lines: the line between the lateral canthi of eyes
-    :param r_brow_pts: the right eyebrow point coordinates
-    :param l_brow_pts: the left eyebrow point coordinates
-    :return: right brow_height_lines_r, brow_height_lines_l, dist_r, dist_l
-    """
-    eye_y_min = np.amin(np.stack([eye_lines[:, 3], eye_lines[:, 5]]), axis=0)
-    right_brow_line = dga.line.from_points(
-        r_brow_pts,
+def _brow_compute(eye_lines, brow_pts):
+    brow_lines = dga.utils.nan((brow_pts.shape[1], 6))
+    for i in range(brow_pts.shape[1]):
+        if not np.isnan(brow_pts[:, i]).any():
+            linreg = scipy.stats.linregress(brow_pts[:, i, 0], brow_pts[:, i, 1])
+            e0y = linreg.slope * brow_pts[0, i, 0] + linreg.intercept
+            e1y = linreg.slope * brow_pts[2, i, 0] + linreg.intercept
+            brow_lines[i] = dga.line.from_points_1d(
+                np.array([brow_pts[0, i, 0], e0y]), np.array([brow_pts[2, i, 0], e1y])
+            )
+    brow_midpoints = np.stack(
+        [
+            np.where(
+                np.greater(brow_lines[:, 4], brow_lines[:, 2]),
+                (brow_lines[:, 4] - brow_lines[:, 2]) / 2 + brow_lines[:, 2],
+                (brow_lines[:, 2] - brow_lines[:, 4]) / 2 + brow_lines[:, 4],
+            ),
+            np.where(
+                np.greater(brow_lines[:, 5], brow_lines[:, 3]),
+                (brow_lines[:, 5] - brow_lines[:, 3]) / 2 + brow_lines[:, 3],
+                (brow_lines[:, 3] - brow_lines[:, 5]) / 2 + brow_lines[:, 5],
+            ),
+        ],
+        axis=1,
+    )
+    brow_intersection_lines = dga.line.from_points(
+        brow_midpoints,
         np.stack(
-            [r_brow_pts[:, 0] - (eye_lines[:, 0] * (r_brow_pts[:, 1] - eye_y_min)), eye_y_min],
+            [brow_midpoints[:, 0] + 1, brow_midpoints[:, 1] + -1 / eye_lines[:, 0]],
             axis=1,
         ),
     )
-    left_brow_line = dga.line.from_points(
-        l_brow_pts,
-        np.stack(
-            [l_brow_pts[:, 0] - (eye_lines[:, 0] * (l_brow_pts[:, 1] - eye_y_min)), eye_y_min],
-            axis=1,
-        ),
+    brow_eye_intersect = intersection(brow_intersection_lines, eye_lines)
+    brow_height_lines = dga.line.from_points(brow_midpoints, brow_eye_intersect)
+    brow_heights = dga.utils.dist(
+        np.stack([brow_height_lines[:, 2], brow_height_lines[:, 3]], axis=1),
+        np.stack([brow_height_lines[:, 4], brow_height_lines[:, 5]], axis=1),
     )
-    right_bottom_points = intersection(eye_lines, right_brow_line)
-    right_brow_line[:, 4] = right_bottom_points[:, 0]
-    right_brow_line[:, 5] = right_bottom_points[:, 1]
-    left_bottom_points = intersection(eye_lines, left_brow_line)
-    left_brow_line[:, 4] = left_bottom_points[:, 0]
-    left_brow_line[:, 5] = left_bottom_points[:, 1]
-    right_brow_heights = dga.utils.dist(right_bottom_points, r_brow_pts)
-    left_brow_heights = dga.utils.dist(left_bottom_points, l_brow_pts)
-    return right_brow_line, left_brow_line, right_brow_heights, left_brow_heights
+    return brow_height_lines, brow_heights
 
 
 def lower_lip(
@@ -454,7 +465,10 @@ def brow(data_frame: DataFrame, eye_lines: np.ndarray):
     """
     r_brow_pts = dga.utils.point_array(data_frame, _points.R_BROW_PTS)
     l_brow_pts = dga.utils.point_array(data_frame, _points.L_BROW_PTS)
-    return _brow_compute(eye_lines, r_brow_pts, l_brow_pts)
+    right_brow_lines, right_brow_heights = _brow_compute(eye_lines, r_brow_pts)
+    left_brow_lines, left_brow_heights = _brow_compute(eye_lines, l_brow_pts)
+
+    return right_brow_lines, left_brow_lines, right_brow_heights, left_brow_heights
 
 
 def eyes(data_frame: DataFrame) -> (np.ndarray, List[float], List[float]):

@@ -8,8 +8,6 @@ import urllib.request
 import tarfile
 import os
 from . import _geometries
-from qtpy import QtCore, QtWidgets
-from qtpy.QtCore import Qt
 
 
 def point_line_dist_1d(line, point):
@@ -53,29 +51,6 @@ def set_intersect(spline, x_vals: np.ndarray, line: np.ndarray) -> [np.ndarray]:
     dists = dga.utils.dist(points, np.stack((x_vals, line[0] * x_vals + line[1]), axis=1))
     index = np.nanargmin(dists, axis=0)
     return points[index]
-
-
-class CloseListener(QtCore.QObject):
-    """
-    detects when a Qt Window has closed. on the closed slot
-    for more information please reference https://github.com/napari/napari/issues/4336
-    """
-
-    closed = QtCore.Signal()
-
-    def __init__(self, widget):
-        super().__init__(widget)
-        self._widget = widget
-        self._widget.installEventFilter(self)
-
-    @property
-    def widget(self):
-        return self._widget
-
-    def eventFilter(self, obj, event):
-        if obj is self.widget and event.type() == QtCore.QEvent.Close:
-            self.closed.emit()
-        return super().eventFilter(obj, event)
 
 
 def shoelace(x: np.array, y: np.array) -> float:
@@ -149,17 +124,6 @@ def sp_sum(upper: np.ndarray, lower: np.ndarray) -> Tuple[float, np.ndarray]:
         area = shoelace(points_x, points_y)
         return area, np.array(points, dtype=np.float_)
     return np.nan, np.array([np.nan])
-
-
-def text(string: str, format="txt") -> QtWidgets.QLabel:
-    """
-    creates a label with text
-    """
-    label = QtWidgets.QLabel()
-    label.setText(string)
-    if format == "md":
-        label.setTextFormat(Qt.MarkdownText)
-    return label
 
 
 def iris_circles(points):
