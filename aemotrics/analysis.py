@@ -9,7 +9,7 @@ from ._points import IRIS_POINTS_R, IRIS_POINTS_L
 from logging import info
 import pandas as pd
 
-dlc_model_dir_name = "Aemotrics_V3-Nate-2023-06-29"
+dlc_model_dir_name = "Aemotrics_V3"
 model_dir = os.path.join(os.path.dirname(os.path.split(os.path.realpath(__file__))[0]), 'model', dlc_model_dir_name)
 
 if not os.path.isfile(os.path.join(model_dir, "config.yaml")) and not os.path.isfile(
